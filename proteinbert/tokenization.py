@@ -1,5 +1,5 @@
 ALL_AAS = 'ACDEFGHIKLMNPQRSTUVWXY'
-ADDITIONAL_TOKENS = ['<OTHER>', '<START>', '<END>', '<PAD>']
+ADDITIONAL_TOKENS = ['<OTHER>', '<START>', '<END>', '<PAD>, <SEP>']
 
 # Each sequence is added <START> and <END> tokens
 ADDED_TOKENS_PER_SEQ = 2
@@ -15,7 +15,11 @@ def tokenize_seq(seq):
     other_token_index = additional_token_to_index['<OTHER>']
     return [additional_token_to_index['<START>']] + [aa_to_token_index.get(aa, other_token_index) for aa in parse_seq(seq)] + \
             [additional_token_to_index['<END>']]
-            
+
+def tokenize_pair(seq_ref, seq_mut):
+    sep_token_index = additional_token_to_index['<SEP>']
+    return tokenize_seq(seq_ref) + [sep_token_index] + tokenize_seq(seq_mut)
+
 def parse_seq(seq):
     if isinstance(seq, str):
         return seq

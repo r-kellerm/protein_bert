@@ -6,7 +6,7 @@ import numpy as np
 from tensorflow import keras
 
 from .shared_utils.util import log
-from .tokenization import additional_token_to_index, n_tokens, tokenize_seq
+from .tokenization import additional_token_to_index, n_tokens, tokenize_seq, tokenize_pair
     
 class ModelGenerator:
 
@@ -31,8 +31,8 @@ class ModelGenerator:
         self.update_state(model)
         
     def update_state(self, model):
-        self.model_weights = copy_weights([w.numpy() for w in model.variables])
-        self.optimizer_weights = copy_weights([w.numpy() for w in model.optimizer.variables()])
+        self.model_weights = copy_weights(model.get_weights())
+        self.optimizer_weights = copy_weights(model.optimizer.get_weights())
         
     def _init_weights(self, model):
     
@@ -45,7 +45,7 @@ class ModelGenerator:
             model.set_weights(copy_weights(self.model_weights))
         
         if self.optimizer_weights is not None:
-            if len(self.optimizer_weights) == len(model.optimizer.variables()):
+            if len(self.optimizer_weights) == len(model.optimizer.get_weights()):
                 model.optimizer.set_weights(copy_weights(self.optimizer_weights))
             else:
                 log('Incompatible number of optimizer weights - will not initialize them.')
@@ -151,6 +151,22 @@ class InputEncoder:
             tokenize_seqs(seqs, seq_len),
             np.zeros((len(seqs), self.n_annotations), dtype = np.int8)
         ]
+
+    def make_mut(seq, ref, alt, pos):
+        mut_seq = copy(seq)
+        mut_seq[pos] = alt
+        return mut_seq
+
+    def make_mut_seq(self, seqs, refs, alts, poss):
+        seq_muts = [] # zip?
+    
+    def encode_X_pairs(self, seqs, refs, alts, poss, seq_len):
+        seq_muts = []
+        # TODO: rk helper func to prepare mutated sequences
+        return [
+            tokenize_seqs_pairs(seqs, seq_muts, seq_len),
+            np.zeros((len(seqs), self.n_annotations), dtype = np.int8)
+        ]
         
 def load_pretrained_model_from_dump(dump_file_path, create_model_function, create_model_kwargs = {}, optimizer_class = keras.optimizers.Adam, lr = 2e-04, \
         other_optimizer_kwargs = {}, annots_loss_weight = 1, load_optimizer_weights = False):
@@ -171,6 +187,10 @@ def tokenize_seqs(seqs, seq_len):
     # Note that tokenize_seq already adds <START> and <END> tokens.
     return np.array([seq_tokens + (seq_len - len(seq_tokens)) * [additional_token_to_index['<PAD>']] for seq_tokens in map(tokenize_seq, seqs)], dtype = np.int32)
     
+def tokenize_seqs_pairs(seq_refs, seq_alts, seq_len):
+    return np.array([seq_tokens + (seq_len - len(seq_tokens)) * [additional_token_to_index['<PAD>']] \
+     for seq_tokens in map(tokenize_pair, seq_refs, seq_muts)], dtype = np.int32)
+
 def clear_session():
     import tensorflow.keras.backend as K
     K.clear_session()
