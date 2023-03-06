@@ -14,28 +14,7 @@ from pdb import set_trace as bp
 OUTPUT_TYPE = OutputType(False, 'binary')
 UNIQUE_LABELS = [0, 1]
 OUTPUT_SPEC = OutputSpec(OUTPUT_TYPE, UNIQUE_LABELS)
-'''
-train_set_file_path = '/DCAIOCTO/ModelDataZoo/datasets/genomicsTrans_shared/data/data_split_06_09/train_data_undersample_06.09.csv'
-test_set_file_path = '/DCAIOCTO/ModelDataZoo/datasets/genomicsTrans_shared/data/data_split_06_09/test_data_undersample_06.09.csv'
-val_set_file_path = '/DCAIOCTO/ModelDataZoo/datasets/genomicsTrans_shared/data/data_split_06_09/val_data_undersample_06.09.csv'
 
-#train_set_file_path = '/DCAIOCTO/ModelDataZoo/datasets/genomicsTrans_shared/data/data_split_12_01/train_data_undersample_12_01.csv'
-#test_set_file_path = '/DCAIOCTO/ModelDataZoo/datasets/genomicsTrans_shared/data/data_split_12_01/test_data_undersample_12_01.csv'
-#val_set_file_path = '/DCAIOCTO/ModelDataZoo/datasets/genomicsTrans_shared/data/data_split_12_01/val_data_undersample_12_01.csv'
-train_set = pd.read_csv(train_set_file_path).dropna().drop_duplicates()
-valid_set = pd.read_csv(val_set_file_path).dropna().drop_duplicates()
-test_set = pd.read_csv(test_set_file_path).dropna().drop_duplicates()
-
-# Remove spaces from sequences
-train_set['mutSequence'] = train_set['mutSequence'].str.replace(' ', '')
-valid_set['mutSequence'] = valid_set['mutSequence'].str.replace(' ', '')
-test_set['mutSequence'] = test_set['mutSequence'].str.replace(' ', '')
-
-train_set['RefSequence'] = train_set['mutSequence'].str.replace(' ', '')
-valid_set['RefSequence'] = valid_set['mutSequence'].str.replace(' ', '')
-test_set['RefSequence'] = test_set['mutSequence'].str.replace(' ', '')
-
-'''
 def get_label(all_labels):
     # Majority voting
     vals, cnt = np.unique(all_labels, return_counts=True)
@@ -102,13 +81,13 @@ save = False
 augment = True
 pair = True
 max_len = 1024
-TRAIN_DB_NAME = '/DCAIOCTO/ModelDataZoo/datasets/genomicsTrans_shared/data/data_split_06_09/train_data_oversample_06.09.csv'
-VAL_DB_NAME = '/DCAIOCTO/ModelDataZoo/datasets/genomicsTrans_shared/data/data_split_06_09/val_data_oversample_06.09.csv'
-TEST_DB_NAME = '/DCAIOCTO/ModelDataZoo/datasets/genomicsTrans_shared/data/data_split_06_09/test_data_oversample_06.09.csv'
+TRAIN_DB_NAME = 'data/data_split_06_09/train_data_oversample_06.09.csv'
+VAL_DB_NAME = 'data/data_split_06_09/val_data_oversample_06.09.csv'
+TEST_DB_NAME = 'data/data_split_06_09/test_data_oversample_06.09.csv'
 
-#TRAIN_DB_NAME = '/DCAIOCTO/ModelDataZoo/datasets/genomicsTrans_shared/data/data_split_4_01/train_data_undersample_4_01.csv'
-#VAL_DB_NAME = '/DCAIOCTO/ModelDataZoo/datasets/genomicsTrans_shared/data/data_split_4_01/val_data_undersample_4_01.csv'
-#TEST_DB_NAME = '/DCAIOCTO/ModelDataZoo/datasets/genomicsTrans_shared/data/data_split_4_01/test_data_undersample_4_01.csv'
+#TRAIN_DB_NAME = 'data/data_split_4_01/train_data_undersample_4_01.csv'
+#VAL_DB_NAME = 'data/data_split_4_01/val_data_undersample_4_01.csv'
+#TEST_DB_NAME = 'data/data_split_4_01/test_data_undersample_4_01.csv'
 
 #TRAIN_DB_NAME = 'train_latest_val.csv'
 #VAL_DB_NAME = 'val_latest_test.csv'
@@ -125,8 +104,8 @@ if from_saved and os.path.exists(TRAIN_DB_NAME) and os.path.exists(VAL_DB_NAME) 
     find_max_len(valid_set)
     find_max_len(test_set)
 else:
-    db_file_path = '/DCAIOCTO/ModelDataZoo/datasets/genomicsTrans_shared/data/clinvar_hgmd_benign_patho_no_gnomad_filt_09012023_with_seq_23_01.csv'
-    #db_file_path = '/DCAIOCTO/ModelDataZoo/datasets/genomicsTrans_shared/data/data/pfam_added_to_fully_validated_data_from_04_11.csv'
+    db_file_path = 'data/clinvar_hgmd_benign_patho_no_gnomad_filt_09012023_with_seq_23_01.csv'
+    #db_file_path = 'data/data/pfam_added_to_fully_validated_data_from_04_11.csv'
     df = pd.read_csv(db_file_path).dropna().drop_duplicates()
     df = df.rename(columns={"Name": "name"})
     df['pname'] = df['name'].apply(lambda x: x.split('.')[0])
