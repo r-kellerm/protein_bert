@@ -105,7 +105,7 @@ class ProteinBertWrapper(object):
             self.find_minmax_len(self.valid_set)
             self.find_minmax_len(self.test_set)
         else:
-            db_file_path = os.join(data_path, 'all_data.csv')
+            db_file_path = os.path.join(data_path, 'all_data.csv')
             df = pd.read_csv(db_file_path).dropna().drop_duplicates()
             df = df.rename(columns={"Name": "name"})
             df['pname'] = df['name'].apply(lambda x: x.split('.')[0])
