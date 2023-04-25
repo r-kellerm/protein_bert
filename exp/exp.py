@@ -100,8 +100,8 @@ class ProteinBertWrapper(object):
 
     def read_data(self, read_train=True, read_val=True, read_test=True):
         data_path = self.data_path
-        from_saved = True
-        save = False
+        from_saved = False
+        save = not from_saved
         if from_saved and os.path.exists(self.train_db_name) \
             and os.path.exists(self.val_db_name) \
             and os.path.exists(self.test_db_name):
@@ -110,9 +110,9 @@ class ProteinBertWrapper(object):
                 self.train_set = self.untokenize(self.train_set)
                 self.find_minmax_len(self.train_set)
             if read_val:
-                self.valid_set = pd.read_csv(self.val_db_name)
-                self.valid_set = self.untokenize(self.valid_set)
-                self.find_minmax_len(self.valid_set)
+                self.val_set = pd.read_csv(self.val_db_name)
+                self.val_set = self.untokenize(self.val_set)
+                self.find_minmax_len(self.val_set)
             if read_test:
                 self.test_set = pd.read_csv(self.test_db_name)       
                 self.test_set = self.untokenize(self.test_set)
@@ -128,17 +128,17 @@ class ProteinBertWrapper(object):
 
             self.train_set, self.val_set, self.test_set = self.better_split(df_valid)
             self.train_set = self.untokenize(self.train_set)
-            self.valid_set = self.untokenize(self.valid_set)
+            self.val_set = self.untokenize(self.val_set)
             self.test_set = self.untokenize(self.test_set)
 
         if save:
             self.train_set.to_csv(self.train_db_name)
-            self.valid_set.to_csv(self.val_db_name)
+            self.val_set.to_csv(self.val_db_name)
             self.test_set.to_csv(self.test_db_name)
 
         '''
         print(f'{len(self.train_set)} training set records, ' \
-            '{len(self.valid_set)} validation set records, ' \
+            '{len(self.val_set)} validation set records, ' \
                 '{len(self.test_set)} test set records.')
         '''
 
@@ -158,13 +158,13 @@ class ProteinBertWrapper(object):
 
         '''
         finetune(model_generator, input_encoder, OUTPUT_SPEC, \
-            self.train_set['mutSequence'], self.train_set['labels'], self.valid_set['mutSequence'], self.valid_set['labels'], \
+            self.train_set['mutSequence'], self.train_set['labels'], self.val_set['mutSequence'], self.val_set['labels'], \
             seq_len=1024, batch_size=8, max_epochs_per_stage=30, lr=1e-04, begin_with_frozen_pretrained_layers=True, \
             lr_with_frozen_pretrained_layers=1e-03, n_final_epochs=1, final_seq_len=2048, final_lr=1e-03, callbacks=training_callbacks)
         '''
 
         finetune(model_generator, input_encoder, OUTPUT_SPEC, \
-            self.train_set['mutSequence'], self.train_set['labels'], self.valid_set['mutSequence'], self.valid_set['labels'], \
+            self.train_set['mutSequence'], self.train_set['labels'], self.val_set['mutSequence'], self.val_set['labels'], \
             seq_len=1024, batch_size=8, max_epochs_per_stage=self.num_epochs, lr=1e-04, begin_with_frozen_pretrained_layers=True, \
             lr_with_frozen_pretrained_layers=1e-03, n_final_epochs=1, final_seq_len=2048, final_lr=1e-03, callbacks=training_callbacks)
 
