@@ -1,5 +1,6 @@
 ALL_AAS = 'ACDEFGHIKLMNPQRSTUVWXY'
-ADDITIONAL_TOKENS = ['<OTHER>', '<START>', '<END>', '<PAD>', '<SEP>']
+#ADDITIONAL_TOKENS = ['<OTHER>', '<START>', '<END>', '<PAD>', '<SEP>']
+ADDITIONAL_TOKENS = ['<OTHER>', '<START>', '<END>', '<PAD>']
 
 # Each sequence is added <START> and <END> tokens
 ADDED_TOKENS_PER_SEQ = 2
