@@ -8,7 +8,7 @@ from imblearn.over_sampling import RandomOverSampler
 import math
 import numpy as np
 import pickle
-from proteinbert import OutputType, OutputSpec, FinetuningModelGenerator, load_pretrained_model, finetune, evaluate_by_len, encode_dataset
+from proteinbert import OutputType, OutputSpec, FinetuningModelGenerator, load_pretrained_model, finetune, evaluate_by_len
 from proteinbert.conv_and_global_attention_model import get_model_with_hidden_layers_as_outputs
 from data_utils import extract_nm_name, fetch_seq_from_ncbi, extract_mut, add_mut_to_ref_seq
 import tensorflow as tf
