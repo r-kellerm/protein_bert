@@ -28,7 +28,6 @@ def closest_power_of_two(n):
 
 class ProteinBertWrapper(object):
     def __init__(self, args):
-        self.model_path = args.model_path
         self.data_path = args.data_path
         self.model_path = args.model_path
         if os.path.isdir(self.model_path):
@@ -37,6 +36,8 @@ class ProteinBertWrapper(object):
             self.pkl_model_path = self.model_path
         self.cls_threshold = args.cls_threshold
         self.num_epochs = args.num_epochs
+        self.sampling_policy = args.sampling_policy
+        self.regenerate_data = args.regenerate_data
         self.train_db_name = os.path.join(self.data_path, 'train_data.csv')
         self.val_db_name = os.path.join(self.data_path, 'val_data.csv')
         self.test_db_name = os.path.join(self.data_path, 'test_data.csv')
@@ -62,7 +63,10 @@ class ProteinBertWrapper(object):
         uname_to_label = dict([(key, self.get_label(p_to_lbl[key])) for key in unames])
         x_all = np.array(list(uname_to_label.keys())).reshape(-1, 1)
         y_all = list(uname_to_label.values())
-        sampler = RandomOverSampler(sampling_strategy='minority')
+        if self.sampling_policy == 'over':
+            sampler = RandomOverSampler(sampling_strategy='minority')
+        else:
+            sampler = RandomUnderSampler(sampling_strategy='majority')
         x_sampled, y_sampled = sampler.fit_resample(x_all, y_all)
         x_train, x_test_val, y_train, y_test_val = train_test_split(x_sampled, y_sampled, test_size=0.4, random_state=seed)
         x_val, x_test, y_val, y_test = train_test_split(x_test_val, y_test_val, test_size=0.5, random_state=seed)
@@ -100,8 +104,8 @@ class ProteinBertWrapper(object):
 
     def read_data(self, read_train=True, read_val=True, read_test=True):
         data_path = self.data_path
-        from_saved = False
-        save = not from_saved
+        from_saved = not self.regenerate_data
+        save = self.regenerate_data
         if from_saved and os.path.exists(self.train_db_name) \
             and os.path.exists(self.val_db_name) \
             and os.path.exists(self.test_db_name):
@@ -220,6 +224,9 @@ class ProteinBertWrapper(object):
         print(f'Predicted label: {self.class2label[predicted_class]}, raw score: {y_pred.flatten()}')
 
 def main(args):
+    SAMPLING_POLICIES = ['under', 'over']
+    if args.sampling_policy not in SAMPLING_POLICIES:
+        raise ValueError(f'Sampling policy {args.sampling_policy} not allowed. Valid options: {SAMPLING_POLICIES}')
     proteinbert = ProteinBertWrapper(args)
     if args.mode == 'train':
         proteinbert.train()
@@ -228,7 +235,7 @@ def main(args):
     elif args.mode == 'predict':
         proteinbert.predict(args.nm_name, args.change)
     else:
-        print(f'Running mode {args.mode} not supported. Supported modes: train | test | predict')
+        raise ValueError(f'Running mode {args.mode} not supported. Supported modes: train | test | predict')
 
 
 if __name__ == '__main__':
@@ -241,5 +248,7 @@ if __name__ == '__main__':
     parser.add_argument('--change', type=str, help='Mutation information', default='p.Arg259Pro')
     parser.add_argument('--cls-threshold', type=float, help='positive / negative cutoff threshold', default=0.5)
     parser.add_argument('--num-epochs', type=int, help='Number of epochs to run per stage', default=30)
+    parser.add_argument('--regenerate-data', action='store_true', help='Regenerate train / val / test sets')
+    parser.add_argument('--sampling-policy', type=str, help='Sampling policy for imbalanced data, either over or under', default='under')
     args = parser.parse_args()
     main(args)
