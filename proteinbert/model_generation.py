@@ -33,6 +33,33 @@ class ModelGenerator:
     def update_state(self, model):
         self.model_weights = copy_weights(model.get_weights())
         self.optimizer_weights = copy_weights(model.optimizer.get_weights())
+
+    def create_updated_weights(self):
+        old_tokens_cnt = 26
+        shapes = [w.shape for w in self.model_weights]
+        for ind, shape in enumerate(shapes):
+            if str(shape).find(str(old_tokens_cnt)) != -1: # doing it in that strange way because tuple.index throws ValueError if item not found
+                new_shape = [sh for sh in shapes[ind]]
+                dim_to_change = new_shape.index(old_tokens_cnt)
+                new_shape[dim_to_change] += 1
+                weights_to_copy = self.model_weights[ind]
+                new_weights = np.ndarray(shape=new_shape)
+                
+                # handling 1D / 2D only for now
+                if len(new_shape) > 1:
+                    if dim_to_change == 0:
+                        new_weights[:old_tokens_cnt,:] = weights_to_copy
+                        new_weights[old_tokens_cnt,:] = weights_to_copy[-1,:]
+                    elif dim_to_change == 1:
+                        new_weights[:,:old_tokens_cnt] = weights_to_copy
+                        new_weights[:, old_tokens_cnt] = weights_to_copy[:, -1]
+                else:
+                    new_weights[:old_tokens_cnt] = weights_to_copy[:]
+                    new_weights[old_tokens_cnt] = weights_to_copy[-1]
+
+                self.model_weights[ind] = new_weights
+
+
         
     def _init_weights(self, model):
     
@@ -42,6 +69,7 @@ class ModelGenerator:
             self._train_for_a_dummy_epoch(model)
             
         if self.model_weights is not None:
+            self.create_updated_weights()
             model.set_weights(copy_weights(self.model_weights))
         
         if self.optimizer_weights is not None:

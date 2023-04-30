@@ -110,17 +110,20 @@ class ProteinBertWrapper(object):
             and os.path.exists(self.val_db_name) \
             and os.path.exists(self.test_db_name):
             if read_train:
-                self.train_set = pd.read_csv(self.train_db_name)
-                self.train_set = self.untokenize(self.train_set)
-                self.find_minmax_len(self.train_set)
+                if self.train_set == None:
+                    self.train_set = pd.read_csv(self.train_db_name)
+                    self.train_set = self.untokenize(self.train_set)
+                    self.find_minmax_len(self.train_set)
             if read_val:
-                self.val_set = pd.read_csv(self.val_db_name)
-                self.val_set = self.untokenize(self.val_set)
-                self.find_minmax_len(self.val_set)
+                if self.val_set == None:
+                    self.val_set = pd.read_csv(self.val_db_name)
+                    self.val_set = self.untokenize(self.val_set)
+                    self.find_minmax_len(self.val_set)
             if read_test:
-                self.test_set = pd.read_csv(self.test_db_name)       
-                self.test_set = self.untokenize(self.test_set)
-                self.find_minmax_len(self.test_set)
+                if self.test_set == None:
+                    self.test_set = pd.read_csv(self.test_db_name)       
+                    self.test_set = self.untokenize(self.test_set)
+                    self.find_minmax_len(self.test_set)
         else:
             db_file_path = os.path.join(data_path, 'all_data.csv')
             df = pd.read_csv(db_file_path).dropna().drop_duplicates()
