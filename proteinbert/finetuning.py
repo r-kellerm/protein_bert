@@ -43,9 +43,10 @@ class OutputSpec:
             
 def finetune(model_generator, input_encoder, output_spec, train_seqs, train_raw_Y, valid_seqs = None, valid_raw_Y = None, seq_len = 512, batch_size = 32, \
         max_epochs_per_stage = 40, lr = None, begin_with_frozen_pretrained_layers = True, lr_with_frozen_pretrained_layers = None, n_final_epochs = 1, \
-        final_seq_len = 1024, final_lr = None, callbacks = []):
+        final_seq_len = 1024, final_lr = None, callbacks = [], train_seq_muts = None, valid_seq_muts = None):
         
-    encoded_train_set, encoded_valid_set = encode_train_and_valid_sets(train_seqs, train_raw_Y, valid_seqs, valid_raw_Y, input_encoder, output_spec, seq_len)
+    encoded_train_set, encoded_valid_set = encode_train_and_valid_sets(train_seqs, train_raw_Y, valid_seqs, valid_raw_Y, input_encoder, output_spec, seq_len, \
+        train_seq_muts = train_seq_muts, valid_seq_muts = valid_seq_muts)
         
     if begin_with_frozen_pretrained_layers:
         log('Training with frozen pretrained layers...')
@@ -59,17 +60,18 @@ def finetune(model_generator, input_encoder, output_spec, train_seqs, train_raw_
     if n_final_epochs > 0:
         log('Training on final epochs of sequence length %d...' % final_seq_len)
         final_batch_size = max(int(batch_size / (final_seq_len / seq_len)), 1)
-        encoded_train_set, encoded_valid_set = encode_train_and_valid_sets(train_seqs, train_raw_Y, valid_seqs, valid_raw_Y, input_encoder, output_spec, final_seq_len)
+        encoded_train_set, encoded_valid_set = encode_train_and_valid_sets(train_seqs, train_raw_Y, valid_seqs, valid_raw_Y, input_encoder, output_spec, final_seq_len, \
+            train_seq_muts = train_seq_muts, valid_seq_muts = valid_seq_muts)
         model_generator.train(encoded_train_set, encoded_valid_set, final_seq_len, final_batch_size, n_final_epochs, lr = final_lr, callbacks = callbacks, \
                 freeze_pretrained_layers = False)
                 
     model_generator.optimizer_weights = None
 
-def evaluate_by_len(model_generator, input_encoder, output_spec, seqs, raw_Y, start_seq_len = 512, start_batch_size = 32, increase_factor = 2):
+def evaluate_by_len(model_generator, input_encoder, output_spec, seqs, raw_Y, start_seq_len = 512, start_batch_size = 32, increase_factor = 2, seq_muts = None):
     
     assert model_generator.optimizer_weights is None
     
-    dataset = pd.DataFrame({'seq': seqs, 'raw_y': raw_Y})
+    dataset = pd.DataFrame({'seq': seqs, 'raw_y': raw_Y, 'seq_muts': seq_muts})
         
     results = []
     results_names = []
@@ -80,11 +82,13 @@ def evaluate_by_len(model_generator, input_encoder, output_spec, seqs, raw_Y, st
             increase_factor = increase_factor):
 
         X, y_true, sample_weights = encode_dataset(len_matching_dataset['seq'], len_matching_dataset['raw_y'], input_encoder, output_spec, \
-                seq_len = seq_len, needs_filtering = False)
+                seq_len = seq_len, needs_filtering = False, seq_muts = len_matching_dataset['seq_muts'])
         
         assert set(np.unique(sample_weights)) <= {0.0, 1.0}
         y_mask = (sample_weights == 1)
         
+        if len(X[0]) <= 0:
+            continue
         model = model_generator.create_model(seq_len)
         y_pred = model.predict(X, batch_size = batch_size)
         
@@ -150,28 +154,32 @@ def get_evaluation_results(y_true, y_pred, output_spec, return_confusion_matrix 
     else:
         return results
         
-def encode_train_and_valid_sets(train_seqs, train_raw_Y, valid_seqs, valid_raw_Y, input_encoder, output_spec, seq_len):
+def encode_train_and_valid_sets(train_seqs, train_raw_Y, valid_seqs, valid_raw_Y, input_encoder, output_spec, seq_len, train_seq_muts = None, valid_seq_muts = None):
     
     encoded_train_set = encode_dataset(train_seqs, train_raw_Y, input_encoder, output_spec, seq_len = seq_len, needs_filtering = True, \
-            dataset_name = 'Training set')
+            dataset_name = 'Training set', seq_muts = train_seq_muts)
     
     if valid_seqs is None and valid_raw_Y is None:
         encoded_valid_set = None
     else:
         encoded_valid_set = encode_dataset(valid_seqs, valid_raw_Y, input_encoder, output_spec, seq_len = seq_len, needs_filtering = True, \
-                dataset_name = 'Validation set')
+                dataset_name = 'Validation set', seq_muts = valid_seq_muts)
 
     return encoded_train_set, encoded_valid_set
         
-def encode_dataset(seqs, raw_Y, input_encoder, output_spec, seq_len = 512, needs_filtering = True, dataset_name = 'Dataset', verbose = True):
+def encode_dataset(seqs, raw_Y, input_encoder, output_spec, seq_len = 512, needs_filtering = True, dataset_name = 'Dataset', verbose = True, seq_muts = None):
     
     if needs_filtering:
-        dataset = pd.DataFrame({'seq': seqs, 'raw_Y': raw_Y})
+        dataset = pd.DataFrame({'seq': seqs, 'raw_Y': raw_Y, 'seq_muts': seq_muts})
         dataset = filter_dataset_by_len(dataset, seq_len = seq_len, dataset_name = dataset_name, verbose = verbose)
         seqs = dataset['seq']
+        seq_muts = dataset['seq_muts']
         raw_Y = dataset['raw_Y']
     
-    X = input_encoder.encode_X(seqs, seq_len)
+    if seq_muts is not None and seq_muts.any():
+        X = input_encoder.encode_X_pairs(seqs, seq_muts, seq_len)
+    else:
+        X = input_encoder.encode_X(seqs, seq_len)
     Y, sample_weigths = encode_Y(raw_Y, output_spec, seq_len = seq_len)
     return X, Y, sample_weigths
 
@@ -218,7 +226,10 @@ def encode_categorical_Y(labels, unique_labels):
     
 def filter_dataset_by_len(dataset, seq_len = 512, seq_col_name = 'seq', dataset_name = 'Dataset', verbose = True):
     
-    max_allowed_input_seq_len = seq_len - ADDED_TOKENS_PER_SEQ
+    if 'seq_muts' in dataset.columns:
+        max_allowed_input_seq_len = seq_len / 2 - ADDED_TOKENS_PER_SEQ * 2 - 1
+    else:
+        max_allowed_input_seq_len = seq_len - ADDED_TOKENS_PER_SEQ
     filtered_dataset = dataset[dataset[seq_col_name].str.len() <= max_allowed_input_seq_len]
     n_removed_records = len(dataset) - len(filtered_dataset)
     
@@ -234,7 +245,10 @@ def split_dataset_by_len(dataset, seq_col_name = 'seq', start_seq_len = 512, sta
     batch_size = start_batch_size
     
     while len(dataset) > 0:
-        max_allowed_input_seq_len = seq_len - ADDED_TOKENS_PER_SEQ
+        if 'seq_muts' in dataset.columns:
+            max_allowed_input_seq_len = seq_len / 2 - ADDED_TOKENS_PER_SEQ * 2 - 1
+        else:
+            max_allowed_input_seq_len = seq_len - ADDED_TOKENS_PER_SEQ
         len_mask = (dataset[seq_col_name].str.len() <= max_allowed_input_seq_len)
         len_matching_dataset = dataset[len_mask]
         yield len_matching_dataset, seq_len, batch_size

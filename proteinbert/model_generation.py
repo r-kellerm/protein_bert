@@ -31,8 +31,8 @@ class ModelGenerator:
         self.update_state(model)
         
     def update_state(self, model):
-        self.model_weights = copy_weights(model.get_weights())
-        self.optimizer_weights = copy_weights(model.optimizer.get_weights())
+        self.model_weights = copy_weights([w.numpy() for w in model.variables])
+        self.optimizer_weights = copy_weights([w.numpy() for w in model.optimizer.variables()])
 
     def create_updated_weights(self):
         old_tokens_cnt = 26
@@ -73,7 +73,7 @@ class ModelGenerator:
             model.set_weights(copy_weights(self.model_weights))
         
         if self.optimizer_weights is not None:
-            if len(self.optimizer_weights) == len(model.optimizer.get_weights()):
+            if len(self.optimizer_weights) == len(model.optimizer.variables()):
                 model.optimizer.set_weights(copy_weights(self.optimizer_weights))
             else:
                 log('Incompatible number of optimizer weights - will not initialize them.')
@@ -102,7 +102,7 @@ class PretrainingModelGenerator(ModelGenerator):
         
         if compile:
             model.compile(optimizer =self.optimizer_class(learning_rate = self.lr, **self.other_optimizer_kwargs), loss = ['sparse_categorical_crossentropy', 'binary_crossentropy'], \
-                    loss_weights = [1, self.annots_loss_weight])
+                    loss_weights = [1, self.annots_loss_weight], run_eagerly=True)
         
         if init_weights:
             self._init_weights(model)
@@ -112,7 +112,7 @@ class PretrainingModelGenerator(ModelGenerator):
 class FinetuningModelGenerator(ModelGenerator):
 
     def __init__(self, pretraining_model_generator, output_spec, pretraining_model_manipulation_function = None, dropout_rate = 0.5, optimizer_class = None, \
-            lr = None, other_optimizer_kwargs = None, model_weights = None, optimizer_weights = None):
+            lr = None, other_optimizer_kwargs = None, model_weights = None, optimizer_weights = None, use_focal_loss = True):
         
         if other_optimizer_kwargs is None:
             if optimizer_class is None:
@@ -133,6 +133,7 @@ class FinetuningModelGenerator(ModelGenerator):
         self.output_spec = output_spec
         self.pretraining_model_manipulation_function = pretraining_model_manipulation_function
         self.dropout_rate = dropout_rate
+        self.use_bin_focal_loss = use_focal_loss # Focal loss TODO: the loss func name?
                     
     def create_model(self, seq_len, freeze_pretrained_layers = False):
         
@@ -155,7 +156,10 @@ class FinetuningModelGenerator(ModelGenerator):
             loss = 'sparse_categorical_crossentropy'
         elif self.output_spec.output_type.is_binary:
             output_layer = keras.layers.Dense(1, activation = 'sigmoid')(last_hidden_layer)
-            loss = 'binary_crossentropy'
+            if self.use_bin_focal_loss:
+                loss = 'binary_focal_crossentropy'
+            else:
+                loss = 'binary_crossentropy'
         elif self.output_spec.output_type.is_numeric:
             output_layer = keras.layers.Dense(1, activation = None)(last_hidden_layer)
             loss = 'mse'
@@ -163,7 +167,7 @@ class FinetuningModelGenerator(ModelGenerator):
             raise ValueError('Unexpected global output type: %s' % self.output_spec.output_type)
                 
         model = keras.models.Model(inputs = model_inputs, outputs = output_layer)
-        model.compile(loss = loss, optimizer =self.optimizer_class(learning_rate = self.lr, **self.other_optimizer_kwargs))
+        model.compile(loss = loss, optimizer =self.optimizer_class(learning_rate = self.lr, **self.other_optimizer_kwargs), run_eagerly=True)
         
         self._init_weights(model)
                 
@@ -179,21 +183,11 @@ class InputEncoder:
             tokenize_seqs(seqs, seq_len),
             np.zeros((len(seqs), self.n_annotations), dtype = np.int8)
         ]
-
-    def make_mut(seq, ref, alt, pos):
-        mut_seq = copy(seq)
-        mut_seq[pos] = alt
-        return mut_seq
-
-    def make_mut_seq(self, seqs, refs, alts, poss):
-        seq_muts = [] # zip?
     
-    def encode_X_pairs(self, seqs, refs, alts, poss, seq_len):
-        seq_muts = []
-        # TODO: rk helper func to prepare mutated sequences
+    def encode_X_pairs(self, seq_refs, seq_muts, seq_len):
         return [
-            tokenize_seqs_pairs(seqs, seq_muts, seq_len),
-            np.zeros((len(seqs), self.n_annotations), dtype = np.int8)
+            tokenize_seq_pairs(seq_refs, seq_muts, seq_len),
+            np.zeros((len(seq_refs), self.n_annotations), dtype = np.int8)
         ]
         
 def load_pretrained_model_from_dump(dump_file_path, create_model_function, create_model_kwargs = {}, optimizer_class = keras.optimizers.Adam, lr = 2e-04, \
@@ -215,7 +209,7 @@ def tokenize_seqs(seqs, seq_len):
     # Note that tokenize_seq already adds <START> and <END> tokens.
     return np.array([seq_tokens + (seq_len - len(seq_tokens)) * [additional_token_to_index['<PAD>']] for seq_tokens in map(tokenize_seq, seqs)], dtype = np.int32)
     
-def tokenize_seqs_pairs(seq_refs, seq_alts, seq_len):
+def tokenize_seq_pairs(seq_refs, seq_muts, seq_len):
     return np.array([seq_tokens + (seq_len - len(seq_tokens)) * [additional_token_to_index['<PAD>']] \
      for seq_tokens in map(tokenize_pair, seq_refs, seq_muts)], dtype = np.int32)
 

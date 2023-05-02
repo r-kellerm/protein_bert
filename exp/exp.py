@@ -34,10 +34,14 @@ class ProteinBertWrapper(object):
             self.pkl_model_path = self.model_path + '/proteinbert_finetuned.pkl'
         else:
             self.pkl_model_path = self.model_path
+
+        self.out_pkl_dir_path = self.pkl_model_path if os.path.isdir(self.model_path) else os.path.basename(self.model_path)
         self.cls_threshold = args.cls_threshold
         self.num_epochs = args.num_epochs
         self.sampling_policy = args.sampling_policy
         self.regenerate_data = args.regenerate_data
+        self.use_pairs = args.use_pairs
+        self.batch_size = args.batch_size
         self.train_db_name = os.path.join(self.data_path, 'train_data.csv')
         self.val_db_name = os.path.join(self.data_path, 'val_data.csv')
         self.test_db_name = os.path.join(self.data_path, 'test_data.csv')
@@ -91,7 +95,7 @@ class ProteinBertWrapper(object):
 
     def untokenize(self, db):
         db['mutSequence'] = db['mutSequence'].apply(lambda x: x.replace(' ', ''))
-        #db['refSequence'] = db['refSequence'].apply(lambda x: x.replace(' ', ''))
+        db['RefSequence'] = db['RefSequence'].apply(lambda x: x.replace(' ', ''))
         return db
 
     def find_minmax_len(self, db):
@@ -101,29 +105,23 @@ class ProteinBertWrapper(object):
         print(f'Min len: {minlen} max len: {maxlen}') 
         return minlen, maxlen
 
-
     def read_data(self, read_train=True, read_val=True, read_test=True):
         data_path = self.data_path
         from_saved = not self.regenerate_data
         save = self.regenerate_data
-        if from_saved and os.path.exists(self.train_db_name) \
-            and os.path.exists(self.val_db_name) \
-            and os.path.exists(self.test_db_name):
-            if read_train:
-                if self.train_set == None:
-                    self.train_set = pd.read_csv(self.train_db_name)
-                    self.train_set = self.untokenize(self.train_set)
-                    self.find_minmax_len(self.train_set)
-            if read_val:
-                if self.val_set == None:
-                    self.val_set = pd.read_csv(self.val_db_name)
-                    self.val_set = self.untokenize(self.val_set)
-                    self.find_minmax_len(self.val_set)
-            if read_test:
-                if self.test_set == None:
-                    self.test_set = pd.read_csv(self.test_db_name)       
-                    self.test_set = self.untokenize(self.test_set)
-                    self.find_minmax_len(self.test_set)
+        if from_saved and os.path.exists(self.train_db_name):
+            if read_train and os.path.exists(self.train_db_name) and self.train_set is None:
+                self.train_set = pd.read_csv(self.train_db_name)
+                self.train_set = self.untokenize(self.train_set)
+                self.find_minmax_len(self.train_set)
+            if read_val and os.path.exists(self.val_db_name) and self.val_set is None:
+                self.val_set = pd.read_csv(self.val_db_name)
+                self.val_set = self.untokenize(self.val_set)
+                self.find_minmax_len(self.val_set)
+            if read_test and os.path.exists(self.test_db_name) and self.test_set is None:
+                self.test_set = pd.read_csv(self.test_db_name)       
+                self.test_set = self.untokenize(self.test_set)
+                self.find_minmax_len(self.test_set)
         else:
             db_file_path = os.path.join(data_path, 'all_data.csv')
             df = pd.read_csv(db_file_path).dropna().drop_duplicates()
@@ -161,6 +159,7 @@ class ProteinBertWrapper(object):
         training_callbacks = [
             keras.callbacks.ReduceLROnPlateau(patience=1, factor=0.25, min_lr=1e-05, verbose=1),
             keras.callbacks.EarlyStopping(patience=2, restore_best_weights=True),
+            keras.callbacks.ModelCheckpoint(self.out_pkl_dir_path + '/{epoch:02d}-{val_loss:.2f}.pkl', save_weights_only=True, save_best_only=False, save_freq='epoch')
         ]
 
         '''
@@ -170,15 +169,22 @@ class ProteinBertWrapper(object):
             lr_with_frozen_pretrained_layers=1e-03, n_final_epochs=1, final_seq_len=2048, final_lr=1e-03, callbacks=training_callbacks)
         '''
 
-        finetune(model_generator, input_encoder, OUTPUT_SPEC, \
+        if self.use_pairs:
+            finetune(model_generator, input_encoder, OUTPUT_SPEC, \
+            self.train_set['RefSequence'], self.train_set['labels'], self.val_set['RefSequence'], self.val_set['labels'], \
+            seq_len=1024, batch_size=self.batch_size, max_epochs_per_stage=self.num_epochs, lr=1e-04, begin_with_frozen_pretrained_layers=True, \
+            lr_with_frozen_pretrained_layers=1e-03, n_final_epochs=1, final_seq_len=2048, final_lr=1e-03, callbacks=training_callbacks, \
+            train_seq_muts=self.train_set['mutSequence'], valid_seq_muts=self.val_set['mutSequence'])
+        else:
+            finetune(model_generator, input_encoder, OUTPUT_SPEC, \
             self.train_set['mutSequence'], self.train_set['labels'], self.val_set['mutSequence'], self.val_set['labels'], \
-            seq_len=1024, batch_size=8, max_epochs_per_stage=self.num_epochs, lr=1e-04, begin_with_frozen_pretrained_layers=True, \
+            seq_len=1024, batch_size=self.batch_size, max_epochs_per_stage=self.num_epochs, lr=1e-04, begin_with_frozen_pretrained_layers=True, \
             lr_with_frozen_pretrained_layers=1e-03, n_final_epochs=1, final_seq_len=2048, final_lr=1e-03, callbacks=training_callbacks)
 
         self.test(model_generator, input_encoder)
 
         # save the model
-        with open(self.pkl_model_path, 'wb') as f:
+        with open(self.out_pkl_dir_path + 'model_last.pkl', 'wb') as f:
             pickle.dump(model_generator.model_weights, f)
 
 
@@ -200,10 +206,14 @@ class ProteinBertWrapper(object):
         self.read_data(read_train=False, read_val=False, read_test=True)
         if model_generator == None or input_encoder == None:
             model_generator, input_encoder = self.load_pretrained()
-        results, confusion_matrix = evaluate_by_len(model_generator, input_encoder, OUTPUT_SPEC,\
+        if self.use_pairs:
+            results, confusion_matrix = evaluate_by_len(model_generator, input_encoder, OUTPUT_SPEC,\
+            self.test_set['RefSequence'], self.test_set['labels'], \
+            start_seq_len=1024, start_batch_size=self.batch_size, seq_muts=self.test_set['mutSequence'])
+        else:
+            results, confusion_matrix = evaluate_by_len(model_generator, input_encoder, OUTPUT_SPEC,\
             self.test_set['mutSequence'], self.test_set['labels'], \
-            start_seq_len=1024, start_batch_size=8)
-
+            start_seq_len=1024, start_batch_size=self.batch_size)
         print('Test-set performance:')
         print(results)
 
@@ -219,9 +229,15 @@ class ProteinBertWrapper(object):
         seq = fetch_seq_from_ncbi(prot_name)
         mut_seq, mut_pos = add_mut_to_ref_seq(seq, change)
         model_generator, input_encoder = self.load_pretrained()
-        seq_len = min(1024, closest_power_of_two(len(mut_seq) + 2))# +2 because of begin and end tokens
+        if self.use_pairs:
+            seq_len = max(1024, closest_power_of_two(len(mut_seq)* 2 + 5)) # 2* begin and end + sep
+        else:
+            seq_len = max(1024, closest_power_of_two(len(mut_seq) + 2)) # +2 because of begin and end tokens
         model = model_generator.create_model(seq_len)
-        x = input_encoder.encode_X([mut_seq], seq_len)
+        if self.use_pairs:
+            x = input_encoder.encode_X_pairs([seq], [mut_seq], seq_len)
+        else:
+            x = input_encoder.encode_X([mut_seq], seq_len)
         y_pred = model.predict(x, batch_size=1)
         predicted_class = int(y_pred >= self.cls_threshold)
         print(f'Predicted label: {self.class2label[predicted_class]}, raw score: {y_pred.flatten()}')
@@ -251,7 +267,9 @@ if __name__ == '__main__':
     parser.add_argument('--change', type=str, help='Mutation information', default='p.Arg259Pro')
     parser.add_argument('--cls-threshold', type=float, help='positive / negative cutoff threshold', default=0.5)
     parser.add_argument('--num-epochs', type=int, help='Number of epochs to run per stage', default=30)
+    parser.add_argument('--batch-size', type=int, help='Batch size', default=16)
     parser.add_argument('--regenerate-data', action='store_true', help='Regenerate train / val / test sets')
+    parser.add_argument('--use-pairs', action='store_true', help='Use pairs or reference+mutation instead of mutation only')
     parser.add_argument('--sampling-policy', type=str, help='Sampling policy for imbalanced data, either over or under', default='under')
     args = parser.parse_args()
     main(args)
