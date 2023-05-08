@@ -7,6 +7,8 @@ from tensorflow import keras
 
 from .shared_utils.util import log
 from .tokenization import additional_token_to_index, n_tokens, tokenize_seq, tokenize_pair
+
+from focal_loss import SparseCategoricalFocalLoss
     
 class ModelGenerator:
 
@@ -133,7 +135,7 @@ class FinetuningModelGenerator(ModelGenerator):
         self.output_spec = output_spec
         self.pretraining_model_manipulation_function = pretraining_model_manipulation_function
         self.dropout_rate = dropout_rate
-        self.use_bin_focal_loss = use_focal_loss # Focal loss TODO: the loss func name?
+        self.use_focal_loss = use_focal_loss # Focal loss TODO: the loss func name?
                     
     def create_model(self, seq_len, freeze_pretrained_layers = False):
         
@@ -153,10 +155,13 @@ class FinetuningModelGenerator(ModelGenerator):
         
         if self.output_spec.output_type.is_categorical:
             output_layer = keras.layers.Dense(len(self.output_spec.unique_labels), activation = 'softmax')(last_hidden_layer)
-            loss = 'sparse_categorical_crossentropy'
+            if self.use_focal_loss:
+                loss = SparseCategoricalFocalLoss(gamma=2) #'sparse_categorical_focal_crossentropy'
+            else:
+                loss = 'sparse_categorical_crossentropy'
         elif self.output_spec.output_type.is_binary:
             output_layer = keras.layers.Dense(1, activation = 'sigmoid')(last_hidden_layer)
-            if self.use_bin_focal_loss:
+            if self.use_focal_loss:
                 loss = 'binary_focal_crossentropy'
             else:
                 loss = 'binary_crossentropy'

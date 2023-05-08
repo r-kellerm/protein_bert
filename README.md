@@ -25,6 +25,7 @@ Below are the Python packages required by ProteinBERT, which are automatically i
 * h5py (3.2.1)
 * lxml (4.3.2)
 * pyfaidx (0.5.8)
+* focal-loss (0.0.7)
 
 
 Install ProteinBERT
