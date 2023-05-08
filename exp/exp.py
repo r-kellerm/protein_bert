@@ -14,11 +14,6 @@ from data_utils import extract_nm_name, fetch_seq_from_ncbi, extract_mut, add_mu
 import tensorflow as tf
 from pdb import set_trace as bp
 
-# A local (non-global) binary output
-OUTPUT_TYPE = OutputType(False, 'binary')
-UNIQUE_LABELS = [0, 1]
-OUTPUT_SPEC = OutputSpec(OUTPUT_TYPE, UNIQUE_LABELS)
-
 def closest_power_of_two(n):
     a = int(math.log2(n))
     if 2**a == n:
@@ -37,14 +32,20 @@ class ProteinBertWrapper(object):
 
         self.out_pkl_dir_path = self.pkl_model_path if os.path.isdir(self.model_path) else os.path.basename(self.model_path)
         self.cls_threshold = args.cls_threshold
-        self.num_epochs = args.num_epochs
         self.sampling_policy = args.sampling_policy
         self.regenerate_data = args.regenerate_data
         self.use_pairs = args.use_pairs
-        self.batch_size = args.batch_size
-        self.train_db_name = os.path.join(self.data_path, 'train_data.csv')
-        self.val_db_name = os.path.join(self.data_path, 'val_data.csv')
-        self.test_db_name = os.path.join(self.data_path, 'test_data.csv')
+        self.is_cat = args.is_cat
+
+        # A local (non-global) binary output
+        out_type = 'categorical' if self.is_cat else 'binary'
+        self.OUTPUT_TYPE = OutputType(False, out_type)
+        self.UNIQUE_LABELS = [0, 1]
+        self.OUTPUT_SPEC = OutputSpec(self.OUTPUT_TYPE, self.UNIQUE_LABELS)
+        
+        self.train_db_name = os.path.join(self.data_path, 'train.csv')
+        self.val_db_name = os.path.join(self.data_path, 'val.csv')
+        self.test_db_name = os.path.join(self.data_path, 'test.csv')
         self.train_set = None
         self.val_set = None
         self.test_set = None
@@ -125,11 +126,11 @@ class ProteinBertWrapper(object):
         else:
             db_file_path = os.path.join(data_path, 'all_data.csv')
             df = pd.read_csv(db_file_path).dropna().drop_duplicates()
-            df = df.rename(columns={"Name": "name"})
+            df = df.rename(columns={'Name': 'name'})
             df['pname'] = df['name'].apply(lambda x: x.split('.')[0])
             if 'labels' not in df.columns:
                 df['labels'] = np.where(df['category'] == 'patho', 1, 0)
-            df_valid = df[df.astype(object).ne("-1").all(axis=1)]
+            df_valid = df[df.astype(object).ne('-1').all(axis=1)]
 
             self.train_set, self.val_set, self.test_set = self.better_split(df_valid)
             self.train_set = self.untokenize(self.train_set)
@@ -148,12 +149,12 @@ class ProteinBertWrapper(object):
         '''
 
 
-    def train(self):
+    def train(self, epochs=5, batch_size=8):
         self.read_data()
         print(tf.config.list_physical_devices('GPU'))
         
         pretrained_model_generator, input_encoder = load_pretrained_model()
-        model_generator = FinetuningModelGenerator(pretrained_model_generator, OUTPUT_SPEC,\
+        model_generator = FinetuningModelGenerator(pretrained_model_generator, self.OUTPUT_SPEC,\
             pretraining_model_manipulation_function=get_model_with_hidden_layers_as_outputs, dropout_rate = 0.5)
 
         training_callbacks = [
@@ -170,17 +171,20 @@ class ProteinBertWrapper(object):
         '''
 
         if self.use_pairs:
-            finetune(model_generator, input_encoder, OUTPUT_SPEC, \
+            finetune(model_generator, input_encoder, self.OUTPUT_SPEC, \
             self.train_set['RefSequence'], self.train_set['labels'], self.val_set['RefSequence'], self.val_set['labels'], \
-            seq_len=1024, batch_size=self.batch_size, max_epochs_per_stage=self.num_epochs, lr=1e-04, begin_with_frozen_pretrained_layers=True, \
+            seq_len=1024, batch_size=batch_size, max_epochs_per_stage=epochs, lr=1e-04, begin_with_frozen_pretrained_layers=True, \
             lr_with_frozen_pretrained_layers=1e-03, n_final_epochs=1, final_seq_len=2048, final_lr=1e-03, callbacks=training_callbacks, \
             train_seq_muts=self.train_set['mutSequence'], valid_seq_muts=self.val_set['mutSequence'])
         else:
-            finetune(model_generator, input_encoder, OUTPUT_SPEC, \
+            finetune(model_generator, input_encoder, self.OUTPUT_SPEC, \
             self.train_set['mutSequence'], self.train_set['labels'], self.val_set['mutSequence'], self.val_set['labels'], \
-            seq_len=1024, batch_size=self.batch_size, max_epochs_per_stage=self.num_epochs, lr=1e-04, begin_with_frozen_pretrained_layers=True, \
+            seq_len=1024, batch_size=batch_size, max_epochs_per_stage=epochs, lr=1e-04, begin_with_frozen_pretrained_layers=True, \
             lr_with_frozen_pretrained_layers=1e-03, n_final_epochs=1, final_seq_len=2048, final_lr=1e-03, callbacks=training_callbacks)
 
+        print('--------------------------------------------')
+        print('---------------Training Done!---------------')
+        print('--------------------------------------------')
         self.test(model_generator, input_encoder)
 
         # save the model
@@ -196,24 +200,24 @@ class ProteinBertWrapper(object):
         else: #model_weights only
             model_weights = saved_model_weights
         saved_pretrained_model_generator, saved_input_encoder = load_pretrained_model()
-        saved_model_generator = FinetuningModelGenerator(saved_pretrained_model_generator, OUTPUT_SPEC, 
+        saved_model_generator = FinetuningModelGenerator(saved_pretrained_model_generator, self.OUTPUT_SPEC, 
             pretraining_model_manipulation_function=get_model_with_hidden_layers_as_outputs, 
             dropout_rate=0.5,
             model_weights=model_weights)
         return saved_model_generator, saved_input_encoder
 
-    def test(self, model_generator=None, input_encoder=None):
+    def test(self, model_generator=None, input_encoder=None, batch_size=8):
         self.read_data(read_train=False, read_val=False, read_test=True)
         if model_generator == None or input_encoder == None:
             model_generator, input_encoder = self.load_pretrained()
         if self.use_pairs:
-            results, confusion_matrix = evaluate_by_len(model_generator, input_encoder, OUTPUT_SPEC,\
+            results, confusion_matrix = evaluate_by_len(model_generator, input_encoder, self.OUTPUT_SPEC,\
             self.test_set['RefSequence'], self.test_set['labels'], \
-            start_seq_len=1024, start_batch_size=self.batch_size, seq_muts=self.test_set['mutSequence'])
+            start_seq_len=1024, start_batch_size=batch_size, seq_muts=self.test_set['mutSequence'])
         else:
-            results, confusion_matrix = evaluate_by_len(model_generator, input_encoder, OUTPUT_SPEC,\
+            results, confusion_matrix = evaluate_by_len(model_generator, input_encoder, self.OUTPUT_SPEC,\
             self.test_set['mutSequence'], self.test_set['labels'], \
-            start_seq_len=1024, start_batch_size=self.batch_size)
+            start_seq_len=1024, start_batch_size=batch_size)
         print('Test-set performance:')
         print(results)
 
@@ -247,21 +251,23 @@ def main(args):
     if args.sampling_policy not in SAMPLING_POLICIES:
         raise ValueError(f'Sampling policy {args.sampling_policy} not allowed. Valid options: {SAMPLING_POLICIES}')
     proteinbert = ProteinBertWrapper(args)
-    if args.mode == 'train':
-        proteinbert.train()
+    if args.mode == 'gen':
+        proteinbert.read_data(read_train=True, read_val=True, read_test=True)
+    elif args.mode == 'train':
+        proteinbert.train(args.num_epochs, args.batch_size)
     elif args.mode == 'test':
-        proteinbert.test()
+        proteinbert.test(args.batch_size)
     elif args.mode == 'predict':
         proteinbert.predict(args.nm_name, args.change)
     else:
-        raise ValueError(f'Running mode {args.mode} not supported. Supported modes: train | test | predict')
+        raise ValueError(f'Running mode {args.mode} not supported. Supported modes: gen | train | test | predict')
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser('Train, test or infer a single sample for Protein pathogenicity')
-    parser.add_argument('--mode', type=str, help='Running mode (train for training, test for testing, \
+    parser = argparse.ArgumentParser('Generate data , train, test or infer a single sample for Protein pathogenicity')
+    parser.add_argument('--mode', type=str, help='Running mode (gen for data generation, train for training, test for testing, \
      predict for predicting a single sample)')
-    parser.add_argument('--model-path', type=str, help='Path of trained model to load or save')
+    parser.add_argument('--model-path', type=str, help='Path of trained model to load or save', default='models/')
     parser.add_argument('--data-path', type=str, help='Data path')
     parser.add_argument('--nm-name', type=str, help='protein name for predict mode', default='NM_000355')
     parser.add_argument('--change', type=str, help='Mutation information', default='p.Arg259Pro')
@@ -271,5 +277,6 @@ if __name__ == '__main__':
     parser.add_argument('--regenerate-data', action='store_true', help='Regenerate train / val / test sets')
     parser.add_argument('--use-pairs', action='store_true', help='Use pairs or reference+mutation instead of mutation only')
     parser.add_argument('--sampling-policy', type=str, help='Sampling policy for imbalanced data, either over or under', default='under')
+    parser.add_argument('--is-cat', action='store_true', help='Use categorical classification instead of binary output')
     args = parser.parse_args()
     main(args)
