@@ -1,5 +1,10 @@
+import os
 ALL_AAS = 'ACDEFGHIKLMNPQRSTUVWXY'
-ADDITIONAL_TOKENS = ['<OTHER>', '<START>', '<END>', '<PAD>', '<SEP>']
+USE_SEP = os.environ.get('USE_SEP_TOKEN') == '1'
+if USE_SEP:
+    ADDITIONAL_TOKENS = ['<OTHER>', '<START>', '<END>', '<PAD>', '<SEP>']
+else:
+    ADDITIONAL_TOKENS = ['<OTHER>', '<START>', '<END>', '<PAD>']
 
 # Each sequence is added <START> and <END> tokens
 ADDED_TOKENS_PER_SEQ = 2
@@ -17,7 +22,7 @@ def tokenize_seq(seq):
             [additional_token_to_index['<END>']]
 
 def tokenize_pair(seq_ref, seq_mut):
-    sep_token_index = additional_token_to_index['<SEP>']
+    sep_token_index = additional_token_to_index['<SEP>'] if USE_SEP else additional_token_to_index['<PAD>']
     return tokenize_seq(seq_ref) + [sep_token_index] + tokenize_seq(seq_mut)
 
 def parse_seq(seq):

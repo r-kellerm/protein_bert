@@ -27,7 +27,7 @@ def load_pretrained_model(local_model_dump_dir = DEFAULT_LOCAL_MODEL_DUMP_DIR, l
             print(f' Local model dump file {dump_file_path} doesn\'t exist. Will download {remote_model_dump_url} into {local_model_dump_dir}. Please approve or reject this ' + \
                     '(to exit and potentially call the function again with different parameters).')
             
-            while True:
+            while False:
                 
                 user_input = input('Do you approve downloading the file into the specified directory? Please specify "Yes" or "No":')
                 
