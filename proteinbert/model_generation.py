@@ -6,7 +6,7 @@ import numpy as np
 from tensorflow import keras
 
 from .shared_utils.util import log
-from .tokenization import additional_token_to_index, n_tokens, tokenize_seq, tokenize_pair
+from .tokenization import additional_token_to_index, n_tokens, tokenize_seq, tokenize_pair, USE_SEP
 
 from focal_loss import SparseCategoricalFocalLoss
     
@@ -71,7 +71,8 @@ class ModelGenerator:
             self._train_for_a_dummy_epoch(model)
             
         if self.model_weights is not None:
-            self.create_updated_weights()
+            if USE_SEP:
+                self.create_updated_weights()
             model.set_weights(copy_weights(self.model_weights))
         
         if self.optimizer_weights is not None:
