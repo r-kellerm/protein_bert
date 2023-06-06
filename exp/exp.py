@@ -10,6 +10,7 @@ import numpy as np
 import pickle
 from proteinbert import OutputType, OutputSpec, FinetuningModelGenerator, load_pretrained_model, finetune, evaluate_by_len
 from proteinbert.conv_and_global_attention_model import get_model_with_hidden_layers_as_outputs
+from proteinbert.finetuning import split_dataset_by_len, encode_dataset
 from data_utils import extract_nm_name, fetch_seq_from_ncbi, extract_mut, add_mut_to_ref_seq
 import tensorflow as tf
 from pdb import set_trace as bp
@@ -19,6 +20,10 @@ def closest_power_of_two(n):
     if 2**a == n:
         return n
     return 2**(a + 1)
+
+def chunk_iter(df, size, overlap=0):
+       for pos in range(0, len(df), size-overlap):
+           yield df.iloc[pos:pos + size]
 
 
 class ProteinBertWrapper(object):
@@ -31,6 +36,8 @@ class ProteinBertWrapper(object):
             self.pkl_model_path = self.model_path
 
         self.out_pkl_dir_path = self.pkl_model_path if os.path.isdir(self.model_path) else os.path.basename(self.model_path)
+        if not os.path.exists(self.out_pkl_dir_path):
+            os.mkdir(self.out_pkl_dir_path)
         self.cls_threshold = args.cls_threshold
         self.sampling_policy = args.sampling_policy
         self.regenerate_data = args.regenerate_data
@@ -191,6 +198,38 @@ class ProteinBertWrapper(object):
         with open(self.out_pkl_dir_path + 'model_last.pkl', 'wb') as f:
             pickle.dump(model_generator.model_weights, f)
 
+    def embeddings(self, batch_size=8, chunk_size=32, save_locals=True, save_globals=True, save_y=True):
+        self.read_data()
+        pretrained_model_generator, input_encoder = load_pretrained_model()
+        datasets = {'Train': self.train_set, 'Validation': self.val_set, 'Test': self.test_set}
+
+        for set_name in datasets:
+            print(f'Processing {set_name} dataset')
+            dataset = datasets[set_name]
+
+            # Generate embeddings
+            if self.use_pairs:
+                df = pd.DataFrame({'seq': dataset['RefSequence'], 'raw_y': dataset['labels'], 'seq_muts': dataset['mutSequence']})
+            else:
+                df = pd.DataFrame({'seq': dataset['mutSequence'], 'raw_y': dataset['labels'], 'seq_muts': None})
+            for len_matching_dataset, seq_len, batch_size in split_dataset_by_len(df, start_seq_len=1024, start_batch_size=batch_size):
+                model = get_model_with_hidden_layers_as_outputs(pretrained_model_generator.create_model(seq_len))
+                
+                for i, df_chunk in enumerate(chunk_iter(len_matching_dataset, chunk_size)):
+                    x, y_true, sample_weights = encode_dataset(df_chunk['seq'], df_chunk['raw_y'], input_encoder, self.OUTPUT_SPEC, \
+                        seq_len = seq_len, needs_filtering = False, seq_muts = df_chunk['seq_muts'])
+                    logits_global, logits_local = model.predict(x, batch_size=batch_size)
+                    if save_locals:
+                        pickle.dump(logits_local, open(self.out_pkl_dir_path + f'/logits_local_{set_name}_{seq_len}_{i}.pkl', 'wb'))
+                    if save_globals:
+                        pickle.dump(logits_global, open(self.out_pkl_dir_path + f'/logits_global_{set_name}_{seq_len}_{i}.pkl', 'wb'))
+                    if save_y:
+                        pickle.dump(y_true, open(self.out_pkl_dir_path + f'/y_{set_name}_{seq_len}_{i}.pkl', 'wb'))
+            
+        print(f'Done. Results are saved under {self.out_pkl_dir_path}')
+
+
+
 
     def load_pretrained(self):
         with open(self.pkl_model_path, 'rb') as f:
@@ -259,19 +298,22 @@ def main(args):
         proteinbert.test(args.batch_size)
     elif args.mode == 'predict':
         proteinbert.predict(args.nm_name, args.change)
+    elif args.mode == 'embeddings':
+        proteinbert.embeddings(batch_size=2)
     else:
         raise ValueError(f'Running mode {args.mode} not supported. Supported modes: gen | train | test | predict')
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Generate data , train, test or infer a single sample for Protein pathogenicity')
-    parser.add_argument('--mode', type=str, help='Running mode (gen for data generation, train for training, test for testing, \
+    parser.add_argument('--mode', type=str, help='Running mode (gen for data generation, train for training, \
+     embeddings for extracting embeddings, test for testing, \
      predict for predicting a single sample)')
     parser.add_argument('--model-path', type=str, help='Path of trained model to load or save', default='models/')
     parser.add_argument('--data-path', type=str, help='Data path')
-    parser.add_argument('--nm-name', type=str, help='protein name for predict mode', default='NM_000355')
+    parser.add_argument('--nm-name', type=str, help='Protein name for predict mode', default='NM_000355')
     parser.add_argument('--change', type=str, help='Mutation information', default='p.Arg259Pro')
-    parser.add_argument('--cls-threshold', type=float, help='positive / negative cutoff threshold', default=0.5)
+    parser.add_argument('--cls-threshold', type=float, help='Positive / negative cutoff threshold', default=0.5)
     parser.add_argument('--num-epochs', type=int, help='Number of epochs to run per stage', default=30)
     parser.add_argument('--batch-size', type=int, help='Batch size', default=16)
     parser.add_argument('--regenerate-data', action='store_true', help='Regenerate train / val / test sets')
