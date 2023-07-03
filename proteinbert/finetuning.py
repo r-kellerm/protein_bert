@@ -43,7 +43,7 @@ class OutputSpec:
             
 def finetune(model_generator, input_encoder, output_spec, train_seqs, train_raw_Y, valid_seqs = None, valid_raw_Y = None, seq_len = 512, batch_size = 32, \
         max_epochs_per_stage = 40, lr = None, begin_with_frozen_pretrained_layers = True, lr_with_frozen_pretrained_layers = None, n_final_epochs = 1, \
-        final_seq_len = 1024, final_lr = None, callbacks = [], train_seq_muts = None, valid_seq_muts = None):
+        final_seq_len = 1024, final_lr = None, callbacks = [], train_seq_muts = None, valid_seq_muts = None, finetune_entire = True):
         
     encoded_train_set, encoded_valid_set = encode_train_and_valid_sets(train_seqs, train_raw_Y, valid_seqs, valid_raw_Y, input_encoder, output_spec, seq_len, \
         train_seq_muts = train_seq_muts, valid_seq_muts = valid_seq_muts)
@@ -53,9 +53,10 @@ def finetune(model_generator, input_encoder, output_spec, train_seqs, train_raw_
         model_generator.train(encoded_train_set, encoded_valid_set, seq_len, batch_size, max_epochs_per_stage, lr = lr_with_frozen_pretrained_layers, \
                 callbacks = callbacks, freeze_pretrained_layers = True)
      
-    log('Training the entire fine-tuned model...')
-    model_generator.train(encoded_train_set, encoded_valid_set, seq_len, batch_size, max_epochs_per_stage, lr = lr, callbacks = callbacks, \
-            freeze_pretrained_layers = False)
+    if finetune_entire:
+        log('Training the entire fine-tuned model...')
+        model_generator.train(encoded_train_set, encoded_valid_set, seq_len, batch_size, max_epochs_per_stage, lr = lr, callbacks = callbacks, \
+                freeze_pretrained_layers = False)
                 
     if n_final_epochs > 0:
         log('Training on final epochs of sequence length %d...' % final_seq_len)
@@ -171,7 +172,7 @@ def encode_dataset(seqs, raw_Y, input_encoder, output_spec, seq_len = 512, needs
     
     if needs_filtering:
         dataset = pd.DataFrame({'seq': seqs, 'raw_Y': raw_Y, 'seq_muts': seq_muts})
-        dataset = filter_dataset_by_len(dataset, seq_len = seq_len, dataset_name = dataset_name, verbose = verbose)
+        dataset = filter_dataset_by_len(dataset, seq_len = seq_len, dataset_name = dataset_name, verbose = verbose, use_pairs = seq_muts is not None)
         seqs = dataset['seq']
         seq_muts = dataset['seq_muts']
         raw_Y = dataset['raw_Y']
@@ -224,9 +225,8 @@ def encode_categorical_Y(labels, unique_labels):
         
     return Y
     
-def filter_dataset_by_len(dataset, seq_len = 512, seq_col_name = 'seq', dataset_name = 'Dataset', verbose = True):
-    
-    if 'seq_muts' in dataset.columns:
+def filter_dataset_by_len(dataset, seq_len = 512, seq_col_name = 'seq', dataset_name = 'Dataset', verbose = True, use_pairs = False):
+    if use_pairs:
         max_allowed_input_seq_len = seq_len / 2 - ADDED_TOKENS_PER_SEQ * 2 - 1
     else:
         max_allowed_input_seq_len = seq_len - ADDED_TOKENS_PER_SEQ
