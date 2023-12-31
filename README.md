@@ -6,7 +6,28 @@ ProteinBERT is a protein language model pretrained on ~106M proteins from UniRef
 ProteinBERT's deep-learning architecture is inspired by BERT, but contains several innovations such as  global-attention layers that have linear complexity for sequence length (compared to self-attention's quadratic/n^2 growth). As a result, the model can process protein sequences of almost any length, including extremely long protein sequences (of over tens of thousands of amino acids).
 
 The model takes protein sequences as inputs, and can also take protein GO annotations as additional inputs (to help the model infer about the function of the input protein and update its internal representations and outputs accordingly).
-This package provides  access to a pretrained model produced by training the model for 28 days over ~670M records (i.e. ~6.4 iterations over the entire training dataset of ~106M records). For users interested in pretraining the model from scratch, the package also includes scripts for that.
+This package provides access to a pretrained model produced by training for 28 days over ~670M records (~6.4 epochs over the entire UniRef90 training dataset of ~106M proteins). The package also includes scripts for pretraining the model from scratch and extracting the relevant data.
+
+
+Getting started with pretrained ProteinBERT embeddings
+=============
+Here's a quick code snippet for getting embeddings at the whole sequence (protein) level - you can use these for downstream tasks as extracted features with other ML models, clustering, KNN, etc'. (You can also get local/position level embeddings, and fine tune the ProteinBERT model itself on your task).
+
+```
+from proteinbert import load_pretrained_model
+from proteinbert.conv_and_global_attention_model import get_model_with_hidden_layers_as_outputs
+
+pretrained_model_generator, input_encoder = load_pretrained_model()
+model = get_model_with_hidden_layers_as_outputs(pretrained_model_generator.create_model(seq_len))
+encoded_x = input_encoder.encode_X(seqs, seq_len)
+local_representations, global_representations = model.predict(encoded_x, batch_size=batch_size)
+# ... use these as features for other tasks, based on local_representations, global_representations
+```
+Have a look at the notebook used to finetune the model on a large set of diverse tasks and benchmarks for more usage examples:
+[ProteinBERT demo](https://github.com/nadavbra/protein_bert/blob/master/ProteinBERT%20demo.ipynb).
+
+You can also download  directly from Huggingface as a Keras model: https://huggingface.co/GrimSqueaker/proteinBERT
+
 
 Installation
 =============
@@ -31,28 +52,22 @@ Below are the Python packages required by ProteinBERT, which are automatically i
 Install ProteinBERT
 ------------
 
-Run:
-
-```sh
-pip install protein-bert
-```
-    
-Alternatively, clone this repository and run:
+Clone this repository and run:
 
 ```sh
 git submodule init
 git submodule update
 python setup.py install
-```
-    
+```    
     
 Using ProteinBERT
 =============
 
 Fine-tuning ProteinBERT is easy. You can see working examples [in this notebook](https://github.com/nadavbra/protein_bert/blob/master/ProteinBERT%20demo.ipynb).
 
-You can download the pretrained model & weights by: `wget ftp://ftp.cs.huji.ac.il/users/nadavb/protein_bert/epoch_92400_sample_23500000.pkl`
-    
+You can download the pretrained model & weights from Zenodo at https://zenodo.org/records/10371965 or from GitHub at https://github.com/nadavbra/proteinbert_data_files/blob/master/epoch_92400_sample_23500000.pkl
+
+The model is also available on Huggingface: https://huggingface.co/GrimSqueaker/proteinBERT
     
 Pretraining ProteinBERT from scratch
 =============
@@ -133,11 +148,7 @@ Normally the function *load_pretrained_model* is used to load the existing pretr
 
 Downloading the supervised benchmarks
 =======
-You can download the evaluation benchmarks used with the following command:
-
-```sh
-wget ftp://ftp.cs.huji.ac.il/users/nadavb/protein_bert/protein_benchmarks/*
-```
+You can download the evaluation benchmarks from https://github.com/nadavbra/proteinbert_data_files/tree/master/protein_benchmarks.
     
 Other implementations:
 =======
@@ -149,6 +160,7 @@ ProteinBERT is a free open-source project available under the `MIT License <http
  
 ## Citation <a name="citations"></a>
 =======
+
 If you use ProteinBERT, we ask that you cite our paper:
 ``` 
 Brandes, N., Ofer, D., Peleg, Y., Rappoport, N. & Linial, M. 
